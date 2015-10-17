@@ -1,0 +1,28 @@
+{
+  "name": "dom-the-bot",
+  "version": "1.0.0",
+  "description": "Domi Station's slackbot",
+  "main": "server.js",
+  "dependencies": {
+    "dotenv": "^1.2.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mattohagan/dom-the-bot.git"
+  },
+  "keywords": [
+    "slackbot",
+    "domi"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mattohagan/dom-the-bot/issues"
+  },
+  "homepage": "https://github.com/mattohagan/dom-the-bot#readme"
+}
