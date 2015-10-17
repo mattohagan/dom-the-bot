@@ -22,12 +22,13 @@ function authRequest(req, res, next){
 		process.env.SNAG_SLACK_TOKEN
 	];
 
-	console.log(acceptable_tokens);
+	console.log('body');
 	console.log(req.body);
+	console.log('query');
 	console.log(req.query);
 
 	// check if token is legit
-	if(acceptable_tokens.indexOf(req.query.token) === -1){
+	if(acceptable_tokens.indexOf(req.body.token) === -1){
 		res.sendStatus(401);
 	}
 
@@ -37,8 +38,11 @@ function authRequest(req, res, next){
 app.all('*', authRequest);
 
 app.get('/slack/snag', function(req, res){
+	console.log('yo slack/snag');
 	console.log(req.query);
 	console.log(req.body);
+
+	res.send({hello:'world'});
 });
 
 
