@@ -3,8 +3,11 @@ var app = express();
 var dotenv = require('dotenv');
 var Slack = require('slack-client');
 var request = require('request');
+var bodyParser = require('body-parser');
 
 app.set('port', (process.env.PORT || 5000));
+app.use(bodyParser.urlencoded({ extended: false }))
+app.use(bodyParser.json())
 
 dotenv.load();
 
@@ -21,7 +24,6 @@ function authRequest(req, res, next){
 
 	console.log(acceptable_tokens);
 	console.log(req.body);
-	console.log(req.body.token);
 	console.log(req.query);
 
 	// check if token is legit
