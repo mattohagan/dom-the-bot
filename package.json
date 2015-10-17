@@ -4,7 +4,9 @@
   "description": "Domi Station's slackbot",
   "main": "server.js",
   "dependencies": {
-    "dotenv": "^1.2.0"
+    "dotenv": "^1.2.0",
+    "express": "^4.13.3",
+    "slack-client": "^1.4.1"
   },
   "devDependencies": {},
   "scripts": {
