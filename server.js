@@ -20,7 +20,9 @@ function authRequest(req, res, next){
 	];
 
 	console.log(acceptable_tokens);
-	console.log(req.query.token);
+	console.log(req.body);
+	console.log(req.body.token);
+	console.log(req.query);
 
 	// check if token is legit
 	if(acceptable_tokens.indexOf(req.query.token) === -1){
@@ -58,8 +60,8 @@ slack.login();
 function parseRequest(text){
 
 	console.log(text);
-	
-	
+
+
 	var data = {
 		"email": email,
 		"company": company,
