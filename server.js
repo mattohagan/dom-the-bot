@@ -12,23 +12,22 @@ app.use(bodyParser.json())
 dotenv.load();
 
 var reservationUrl = "http://domi-room.herokuapp.com/room";
-var token = process.env.DOM_API_TOKEN;
+var slackToken = process.env.DOM_API_TOKEN;
 var autoReconnect = true;
 var autoMark = true;
-slack = new Slack(token, autoReconnect, autoMark)
+slack = new Slack(slackToken, autoReconnect, autoMark)
 
 function authRequest(req, res, next){
 	var acceptable_tokens = [
 		process.env.SNAG_SLACK_TOKEN
 	];
 
-	console.log('body');
-	console.log(req.body);
 	console.log('query');
 	console.log(req.query);
 
 	// check if token is legit
-	if(acceptable_tokens.indexOf(req.body.token) === -1){
+	if(acceptable_tokens.indexOf(req.query.token) === -1){
+		console.log(acceptable_tokens.indexOf(req.query.token));
 		res.sendStatus(401);
 	}
 
@@ -39,8 +38,10 @@ app.all('*', authRequest);
 
 app.get('/slack/snag', function(req, res){
 	console.log('yo slack/snag');
-	console.log(req.query);
-	console.log(req.body);
+	console.log(req.query.text);
+
+	var userId = req.query.user_id;
+	console.log(userId);
 
 	res.send({hello:'world'});
 });
@@ -63,10 +64,12 @@ slack.on('error', function(err){
 slack.login();
 
 
-function parseRequest(text){
+function createRequest(text, userId){
 
 	console.log(text);
 
+	var user = slack.getUserByID(userId);
+	var email = user.profile.email;
 
 	var data = {
 		"email": email,
