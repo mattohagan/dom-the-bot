@@ -2,11 +2,13 @@ var express = require('express');
 var app = express();
 var dotenv = require('dotenv');
 var Slack = require('slack-client');
+var request = require('request');
 
 app.set('port', (process.env.PORT || 5000));
 
 dotenv.load();
 
+var reservationUrl = "http://domi-room.herokuapp.com/room";
 var token = process.env.DOM_API_TOKEN;
 var autoReconnect = true;
 var autoMark = true;
@@ -17,9 +19,12 @@ function authRequest(req, res, next){
 		process.env.SNAG_SLACK_TOKEN
 	];
 
+	console.log(acceptable_tokens);
+	console.log(req.query.token);
+
 	// check if token is legit
 	if(acceptable_tokens.indexOf(req.query.token) === -1){
-		res.send(401);
+		res.sendStatus(401);
 	}
 
 	next();
@@ -48,3 +53,51 @@ slack.on('error', function(err){
 });
 
 slack.login();
+
+
+function parseRequest(text){
+
+	console.log(text);
+	
+	
+	var data = {
+		"email": email,
+		"company": company,
+		"room": room,
+		"start": start,
+		"end": end
+	};
+
+	return data;
+}
+
+function makeReservation(data){
+	var options = {
+		url: reservationUrl,
+		method: 'POST',
+		json: data
+	}
+
+	request.post(options, function(err, response, body){
+		if(err)
+			return err;
+
+		console.log('response    '+response);
+
+	});
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
