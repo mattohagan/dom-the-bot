@@ -8,7 +8,8 @@
     "dotenv": "^1.2.0",
     "express": "^4.13.3",
     "request": "^2.65.0",
-    "slack-client": "^1.4.1"
+    "slack-client": "^1.4.1",
+    "trim": "0.0.1"
   },
   "devDependencies": {},
   "scripts": {
