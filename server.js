@@ -45,73 +45,6 @@ app.listen(app.get('port'), function() {
     console.log('Server running at port ' + app.get('port').toString());
 });
 
-app.post('/slack/snag', function(req, res){
-	var helpString = getWelcoming() + " To reserve a room, follow this format and be sure to include the | character: \n"+
-		"```/snag [east OR west OR florida] | [start]-[end] | [day] [month] | [company name]```\n"+
-		"example use: \n"+
-		"```/snag east | 11am-1:15pm | 24 oct | HackFSU```";
-	
-	var text = req.body.text;
-	text = trim(text);
-
-	// HELP COMMAND
-	if(text == 'help' || text == 'Help' || text == 'HELP')
-		res.send(helpString);
-
-	// | CHARACTER NOT INCLUDED
-	if(text.indexOf('|') == -1){
-		var response = "Don't forget to use the | character! Here's your text again if you want to reuse it: \n"+
-			"```"+text+"```";
-		res.send(response);
-	}
-
-	// CREATE A ROOM REQUEST
-	var userId = req.body.user_id;
-	var data = createRequest(text, userId);
-
-	var response = formatResponse(data);
-	response += '\n \n *Snag this room? (y/n)*';
-
-	reservationQueue.userId = data;
-	res.send(response);
-});
-
-// return a randomized welcoming string
-function getWelcoming(){
-	var rand = Math.floor((Math.random() * 8) + 1);
-	var titleString;
-
-	switch(rand){
-	case 1:
-	  titleString = "Welcome!";
-	  break;
-	case 2:
-	  titleString = "Aloha!";
-	  break;
-	case 3:
-	  titleString = "Cheers!";
-	  break;
-	case 4:
-	  titleString = "Salutations!";
-	  break;
-	case 5:
-	  titleString = "Hello!";
-	  break;
-	case 6:
-	  titleString = "Greetings!";
-	  break;
-	case 7:
-	  titleString = "Bonjour!";
-	  break;
-	default:
-	  titleString = "Good Day!";
-	  break;
-	}
-
-	return titleString;
-}
-
-
 
 // slack logic
 slack.on('open', function(){
@@ -129,10 +62,11 @@ function formatResponse(data){
 	// new Date(year, month, day, hour, minutes);
 
 	var response = 
+		"Just to be sure: \n \n" +
 		'*Email:* '+data.email + '\n' +
 		'*Company:* '+ data.company + '\n' +
 		'*Room:* ' + data.room + '\n' +
-		'*Date:* ' + data.day + '/' + data.month + '\n' + 
+		'*Date:* ' + data.day + ' of ' + data.month + '\n' + 
 		'*Start:* ' + data.start + '\n'
 		'*End:* ' + data.end;
 
@@ -437,12 +371,154 @@ function makeReservation(data){
 
 }
 
+slack.on('message', function(message){
+	var channel = slack.getChannelGroupOrDMByID(message.channel);
+	var text = message.text;
+
+	// if direct message
+	if(channel.is_im){
+		var todo = processMessage(text);
+
+		respond[todo](channel, message);
+	}
+});
+
+// returns a function to be called from the respond object
+function processMessage(text){
+	var func;
+	var responses;
+	text = text.toLowerCase();
+
+
+	// SNAG
+	//
+	var sub = text.substring(0, 4);
+	sub = sub.toLowerCase();
+	if(sub == 'snag'){
+		return 'snag';
+	}
+	// HELP
+	//
+	if(doesContain(text, 'help')){
+		return 'help';
+	}
+
+	// TIP
+	//
+	if(doesContain(text, ['tip', 'hint'])){
+		return 'tip';
+	}
+
+	// HELLO
+	//
+	responses = [
+		'hello', 'hey', 'hi', 'dom', 'hola'
+	];
+
+	if(doesContain(text, responses)){
+		return 'hello';
+	}
+
+	return 'invalid';
+}
+
+
+// object of response functions
+var respond = {
+	hello: function(channel, message){
+		var responses = [
+			'Welcome!', 'Aloha!', 'Cheers!', 'Salutations!', 'Hello!', 'Greetings!', 'Bonjour!', 'Good Day!'
+		];
+		channel.send(pickRandom(responses));
+	},
+
+	help: function(channel, message){
+		var helpString = "To reserve a room, follow this format and be sure to include the | character: \n"+
+		"```snag [east OR west OR florida] | [start][am/pm]-[end][am/pm] | [day] [month] | [company name]```\n"+
+		"example use: \n"+
+		"```snag east | 11am-1:15pm | 24 oct | HackFSU```";
+		channel.send(helpString);
+	},
+
+	invalid: function(channel, message){
+		var responses = [
+			"I didn't quite catch that.", "Could you try again?"
+		];
+		channel.send(pickRandom(responses));
+	},
+
+	tip: function(channel, message){
+		var responses = [
+			"Don't forget to clean your own dishes! :droplet::fork_and_knife:", "You can use `today` instead of `[day] [month]` when reserving a room :thumbsup:"
+		];
+
+		channel.send(pickRandom(responses));
+	},
+
+	snag: function(channel, message){
+		text = trim(message.text);
+
+		if(text.length < 6){
+		// NOT ENOUGH INFO
+			this.help(channel, message);
+		} else if (text.indexOf('|') == -1){
+		// | CHARACTER NOT INCLUDED
+
+			var response = "Don't forget to use the | character! Here's your text again if you want to reuse it: \n"+
+				"```"+text+"```";
+
+			channel.send(response);
+		} else {
+		// CREATE A ROOM REQUEST
+			var userId = message.user;
+			// get rid of snag at the beginning
+			var sub = text.substring(4);
+			var requestText = trim(sub);
+
+			// main parsing of request
+			var data = createRequest(requestText, userId);
+
+			// readable format for user
+			var response = formatResponse(data);
+			response += '\n \n \n *Snag this room? (y/n)*';
+
+			reservationQueue.userId = data;
+			channel.send(response);
+		}
+	}
+}
 
 
 
+//// UTILITY FUNCTIONS 
+////
 
 
+// pick a random string in a given list
+// used right now to pick from a set of random responses
+function pickRandom(arr){
+	var rand = Math.floor((Math.random() * arr.length));
+	return arr[rand];
+}
 
+// returns if the given text contains any given trigger word(s)
+function doesContain(text, responses){
+	var contains = false;
+
+	if(typeof(responses) == 'string'){
+		if(text.indexOf(responses) != -1)
+			contains = true;
+	} else {
+		for(var i = 0; i < responses.length; i++){
+			if(text.indexOf(responses[i]) != -1){
+				contains = true;
+				break;
+			}
+		}
+	}
+
+	return contains;
+}
 
 
 
