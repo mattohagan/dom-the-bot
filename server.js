@@ -76,7 +76,7 @@ function formatResponse(data){
 //createRequest('east | 11am-1:15pm | 24 oct | HackFSU');
 function createRequest(text, userId){
 	// create array of data
-	var sections = text.split('|');
+	var sections = text.split(',');
 
 	// get user email
 	var user = slack.getUserByID(userId);
@@ -191,7 +191,8 @@ function parseHrAndMin(str){
 	}
 
 	// offset time if it's pm
-	if(dayTime == 'pm' || dayTime == 'PM' || dayTime == 'Pm' || dayTime == 'pM'){
+	dayTime = dayTime.toLowerCase();
+	if(dayTime == 'pm'){
 		hr += 12;
 	}
 
@@ -383,6 +384,25 @@ slack.on('message', function(message){
 	}
 });
 
+// when a new user joins the team
+slack.on('team_join', function(data){
+	console.log(data);
+	var greeting = [
+		"Welcome to Domi Station! I'm Dom.",
+		"You can use me to make room reservations, try messaging me `help` or `snag` :simple_smile:",
+		"I'd also recommend setting a profile picture so everyone can recognize you!"
+	];
+	var user = data.user;
+
+	slack.openDM(user.id, function(res){
+		var dm_channel = slack.getChannelGroupOrDMByID(res.channel.id);
+		for(var i = 0; i < greeting.length; i++){
+			dm_channel.send(greeting[i]);				
+		}
+	});
+
+});
+
 // returns a function to be called from the respond object
 function processMessage(text){
 	var func;
@@ -433,10 +453,10 @@ var respond = {
 	},
 
 	help: function(channel, message){
-		var helpString = "To reserve a room, follow this format and be sure to include the | character: \n"+
-		"```snag [east OR west OR florida] | [start][am/pm]-[end][am/pm] | [day] [month] | [company name]```\n"+
+		var helpString = "To reserve a room, follow this format and be sure to include commas! \n"+
+		"```snag [east OR west OR florida], [start][am/pm]-[end][am/pm], [day] [month], [company name]```\n"+
 		"example use: \n"+
-		"```snag east | 11am-1:15pm | 24 oct | HackFSU```";
+		"```snag east, 11am-1:15pm, 24 oct, HackFSU```";
 		channel.send(helpString);
 	},
 
@@ -461,11 +481,10 @@ var respond = {
 		if(text.length < 6){
 		// NOT ENOUGH INFO
 			this.help(channel, message);
-		} else if (text.indexOf('|') == -1){
-		// | CHARACTER NOT INCLUDED
+		} else if (text.indexOf(',') == -1){
+		// COMMA NOT INCLUDED
 
-			var response = "Don't forget to use the | character! Here's your text again if you want to reuse it: \n"+
-				"```"+text+"```";
+			var response = "Don't forget to use commas! Please try again."
 
 			channel.send(response);
 		} else {
