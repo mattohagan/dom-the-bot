@@ -22,6 +22,9 @@ slack = new Slack(slackToken, autoReconnect, autoMark);
 
 var reservationQueue = {};
 
+// possible user states: build, finish, false
+var userStates = {};
+
 // authorize incoming requests
 function authRequest(req, res, next){
 	var acceptable_tokens = [
@@ -419,14 +422,23 @@ function makeReservation(data){
 slack.on('message', function(message){
 	var channel = slack.getChannelGroupOrDMByID(message.channel);
 	var text = message.text;
-
-	console.log(message);
-
-	// if direct message
+	var userId = message.user;
+	var username = getUsernameById(userId);
+	
+	// if direct message and not an attachment because users can't send those
 	if(channel.is_im && !message.attachments){
-		var todo = processMessage(text);
+		// if a process is already in progress
+		if(userStates.username && userStates.username.state){
+			var state = userStates.username.state;
+			var currentProcess = userStates.username.process;
 
-		respond[todo](channel, message);
+			states[state][currentProcess](channel, message);
+		} else { 
+		// process first response 
+			var todo = processMessage(text);
+
+			respond[todo](channel, message);
+		}
 	}
 });
 
@@ -463,6 +475,12 @@ function processMessage(text){
 	if(sub == 'snag'){
 		return 'snag';
 	}
+
+	// weekly station announcements
+	if(doesContain(text, 'announcement')){
+		return 'announcements';
+	}
+
 	// HELP
 	//
 	if(doesContain(text, 'help')){
@@ -484,6 +502,8 @@ function processMessage(text){
 	if(doesContain(text, responses)){
 		return 'hello';
 	}
+
+	
 
 	return 'invalid';
 }
@@ -535,7 +555,7 @@ var respond = {
 			channel.send(response);
 		} else {
 		// CREATE A ROOM REQUEST
-			var userId = message.user;
+			var username = getUsernameById(message.user);
 			// get rid of snag at the beginning
 			var sub = text.substring(4);
 			var requestText = trim(sub);
@@ -546,13 +566,186 @@ var respond = {
 			// readable format for user
 			var response = formatRequestResponse(data);
 
-			reservationQueue.userId = data;
+			reservationQueue.username = data;
+
+			userStates.username = {
+				state: 'build',
+				process: 'snag'
+			};
+
 			sendAttachment(channel, response, function(){
 
 			});
 		}
+	},
+
+	announcements: function(channel, message){
+		var admin = ['mattohagan', 'lucaslindsey', 'sabrinatorres', 'peterpan'];
+		var username = getUsernameById(message.user);
+
+		if(admin.indexOf(username) != -1){
+			var string = "Awesome, let's send some announcements! Can you give me the list of Events separated by commas?";
+
+			userStates.username = {
+				state: 'build',
+				process: 'announcements'
+			};
+
+			channel.send(string);
+		} else {
+			this.invalid(channel, message);
+		}
+
+	},
+
+	buildAnnouncements: function(channel, message){
+		var text = message.text;
+		if(text.indexOf(',') == -1){
+			var string = "Don't forget commas! Try sending me the list of Events again.";
+			channel.send(string);
+		} else {
+			var emojiList = [':loudspeaker:', ':satellite:', ':tv:', ':bell:', ':radio:'];
+			var events = text.split(',');
+			var today = new Date();
+			today = today.getDate() + '/' + (today.getMonth() + 1);
+			var title = today + " " + pickRandom(emojiList) + " Station Announcement";
+
+			var fieldText = '';
+			for(var i = 0; i < events.length; i++){
+				var ev = trim(events[i]);
+				fieldText += '- ' + ev + '\n';
+			}
+
+			// users options to pick from
+			var afterMsg = "Would you like to \n ~ Add a Misc. section [any free form text] \n ~ Send now as an email reminder? [send or send email] \n ~ Send now as just an announcement update? [send other]  \n ~ Cancel? [cancel]";
+			var announcement = {
+				"text": '',
+				"attachments": [
+			        {
+			            "fallback": title,
+
+			            "color": '#339999',
+
+			            "pretext": "",
+
+			            "title": title,
+
+			            "fields": [
+			                {
+			                    "title": "Events This Week",
+			                    "value": fieldText,
+			                    "short": false
+			                }
+			            ]
+			        }, {
+			        	"text": afterMsg,
+			        	"color": "#303030",
+			        	"fallback": afterMsg
+			        }
+			    ]
+			};
+
+			userStates.username.announcement = announcement;
+
+			userStates.username.state = 'finish';
+
+			sendAttachment(channel, announcement, function(){});
+		}
+	},
+
+	finishAnnouncements: function(channel, message){
+		var text = message.text;
+		var username = getUsernameById(message.user);
+		text = text.toLowerCase();
+
+		if(text == 'send' || text == 'send email'){
+			var attach = JSON.parse(userStates.username.announcement.attachments);
+			// reset second attachment which asks to send or cancel
+			var msgs = [
+				"All of this info and more can be found in your inbox :mailbox_closed::blush:",
+				"Don't forget to check the email for more info! :envelope_with_arrow::thumbsup:"
+			];
+
+			var msg = pickRandom(msgs);
+			attach[1] = {
+	        	"text": msg,
+	        	"color": "#303030",
+	        	"fallback": msg
+	        };
+
+	        var announcement = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+	        userStates.username = { state: false };
+
+			channel.send('One announcement, coming up!');
+
+			// NEED TO ADD SEND TO #STATIONCHAT
+	        sendAttachment(channel, announcement, function(){});
+		} else if (text == 'send other'){
+			var attach = JSON.parse(userStates.username.announcement.attachments);
+
+	        // remove extra attachment
+	        attach.splice(1, 1);
+
+	        var announcement = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+	        userStates.username = { state: false };
+
+			channel.send('One announcement, coming up!');
+
+			// NEED TO ADD SEND TO #STATIONCHAT
+	        sendAttachment(channel, announcement, function(){});
+		} else if(text == 'cancel'){
+			userStates.username = { state: false };
+		} else {
+			var misc = message.text;
+			var attach = JSON.parse(userStates.username.announcement.attachments);
+
+			// add misc to fields
+			attach[0].fields.push({
+				"title": "Misc.",
+				"value": misc,
+				"short": false
+			});
+
+			// reset second attachment which asks to send or cancel
+			var msg = "If everything looks up to spec, how should I send this? \n ~ Send as an email reminder? [send or send email] \n ~ Send as just an announcement update? [send other] \n ~ Cancel? [cancel]";
+			attach[1] = {
+	        	"text": msg,
+	        	"color": "#303030",
+	        	"fallback": msg
+	        };
+
+	        var announcement = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+	        userStates.username.announcement = announcement;
+
+			sendAttachment(channel, announcement, function(){});
+		}
 	}
-}
+};
+
+// for states that take more than one message
+var states = {
+	build: {
+		announcements: respond.buildAnnouncements,
+		snag: respond.buildReservation
+	},
+
+	finish: {
+		announcements: respond.finishAnnouncements,
+		snag: respond.finishReservation
+	}
+};
 
 function sendAttachment(channel, data, callback){
 	var params = data;
@@ -602,6 +795,13 @@ function doesContain(text, responses){
 	}
 
 	return contains;
+}
+
+
+// return username from id
+function getUsernameById(userId){
+	var user = slack.getUserByID(userId);
+	return user.name;
 }
 
 
