@@ -52,23 +52,67 @@ slack.on('open', function(){
 });
 
 slack.on('error', function(err){
-	console.log('Error'+err);
+	console.log(err);
 });
 
 slack.login();
 
 // format the json data into a readable response
-function formatResponse(data){
+function formatRequestResponse(data){
 	// new Date(year, month, day, hour, minutes);
 
-	var response = 
-		"Just to be sure: \n \n" +
-		'*Email:* '+data.email + '\n' +
-		'*Company:* '+ data.company + '\n' +
-		'*Room:* ' + data.room + '\n' +
-		'*Date:* ' + data.day + ' of ' + data.month + '\n' + 
-		'*Start:* ' + data.start + '\n'
-		'*End:* ' + data.end;
+	var response = {
+		"text": '',
+		"attachments": [
+	        {
+	            "fallback": "Just to make sure, let's double check your reservation.",
+
+	            "color": '#FF9933',
+
+	            "pretext": "Just to be sure, let's double check everything.",
+
+	            "title": "Request to be made",
+
+	            "fields": [
+	                {
+	                    "title": "Email",
+	                    "value": data.email,
+	                    "short": true
+	                },
+	                {
+	                    "title": "Company",
+	                    "value": data.company,
+	                    "short": true
+	                },
+	                {
+	                    "title": "Room",
+	                    "value": data.room,
+	                    "short": true
+	                },
+	                {
+	                    "title": "Date",
+	                    "value": data.day + ' of ' + data.month,
+	                    "short": true
+	                },
+	                {
+	                    "title": "Start",
+	                    "value": data.start,
+	                    "short": true
+	                },
+	                {
+	                    "title": "End",
+	                    "value": data.end,
+	                    "short": true
+	                }
+	            ]
+	        }, {
+	        	"text": "Shall I snag this room for you? (yes/no)",
+	        	"color": "#303030",
+	        	"fallback": "Shall I snag this room for you? (yes/no)"
+	        }
+	    ]
+	};
+
 
 	return response;
 }
@@ -376,8 +420,10 @@ slack.on('message', function(message){
 	var channel = slack.getChannelGroupOrDMByID(message.channel);
 	var text = message.text;
 
+	console.log(message);
+
 	// if direct message
-	if(channel.is_im){
+	if(channel.is_im && !message.attachments){
 		var todo = processMessage(text);
 
 		respond[todo](channel, message);
@@ -498,13 +544,26 @@ var respond = {
 			var data = createRequest(requestText, userId);
 
 			// readable format for user
-			var response = formatResponse(data);
-			response += '\n \n \n *Snag this room? (y/n)*';
+			var response = formatRequestResponse(data);
 
 			reservationQueue.userId = data;
-			channel.send(response);
+			sendAttachment(channel, response, function(){
+
+			});
 		}
 	}
+}
+
+function sendAttachment(channel, data, callback){
+	var params = data;
+    params.channel = channel.id;
+    //params.username = 'dom';
+    params.as_user = true;
+
+    if (data.attachments)
+      params.attachments = JSON.stringify(data.attachments);
+
+    slack._apiCall("chat.postMessage", params, callback);
 }
 
 
@@ -518,6 +577,12 @@ var respond = {
 function pickRandom(arr){
 	var rand = Math.floor((Math.random() * arr.length));
 	return arr[rand];
+}
+
+// return one of domi's hexcodes
+function getDomiHexcode(){
+	var arr = ['#339999', '#CC4233', '#FF9933'];
+	return pickRandom(arr);
 }
 
 // returns if the given text contains any given trigger word(s)
