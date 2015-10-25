@@ -15,6 +15,7 @@ dotenv.load();
 
 // set some variables and authorize our slack object
 var reservationUrl = "http://domi-room.herokuapp.com/room";
+var adminUsers = ['mattohagan', 'christineurban','lucaslindsey', 'sabrinatorres', 'peterpan'];
 var slackToken = process.env.DOM_API_TOKEN;
 var autoReconnect = true;
 var autoMark = true;
@@ -64,6 +65,7 @@ slack.login();
 function formatRequestResponse(data){
 	// new Date(year, month, day, hour, minutes);
 
+	var afterMsg = "Shall I snag this room for you? [send or cancel]";
 	var response = {
 		"text": '',
 		"attachments": [
@@ -72,11 +74,12 @@ function formatRequestResponse(data){
 
 	            "color": '#FF9933',
 
-	            "pretext": "Just to be sure, let's double check everything.",
-
-	            "title": "Request to be made",
-
 	            "fields": [
+	                {
+	                    "title": "REQUEST TO BE MADE",
+	                    "value": "Just to be sure, let's double check everything.",
+	                    "short": false
+	                },
 	                {
 	                    "title": "Email",
 	                    "value": data.email,
@@ -109,9 +112,9 @@ function formatRequestResponse(data){
 	                }
 	            ]
 	        }, {
-	        	"text": "Shall I snag this room for you? (yes/no)",
+	        	"text": afterMsg,
 	        	"color": "#303030",
-	        	"fallback": "Shall I snag this room for you? (yes/no)"
+	        	"fallback": afterMsg
 	        }
 	    ]
 	};
@@ -481,6 +484,16 @@ function processMessage(text){
 		return 'announcements';
 	}
 
+	// general announcement
+	if(doesContain(text, 'general')){
+		return 'general';
+	}
+
+	// FOOD
+	if(doesContain(text, 'food')){
+		return 'food';
+	}
+
 	// HELP
 	//
 	if(doesContain(text, 'help')){
@@ -519,6 +532,7 @@ var respond = {
 	},
 
 	help: function(channel, message){
+
 		var helpString = "To reserve a room, follow this format and be sure to include commas! \n"+
 		"```snag [east OR west OR florida], [start][am/pm]-[end][am/pm], [day] [month], [company name]```\n"+
 		"example use: \n"+
@@ -533,9 +547,19 @@ var respond = {
 		channel.send(pickRandom(responses));
 	},
 
+	food: function(channel, message){
+		var responses = [
+			"Merv's makes a mean melt but keep in mind they close at 3pm! \n M-F 8am-3pm   http://mervsonline.com/  (850)765-5222", 
+			"Kubano's has the best cuban sandwiches in town, usually open til 10pm! \n  http://www.eatkubano.com/  (850)273-1750"
+		];
+
+		channel.send(pickRandom(responses));
+	},
+
 	tip: function(channel, message){
 		var responses = [
-			"Don't forget to clean your own dishes! :droplet::fork_and_knife:", "You can use `today` instead of `[day] [month]` when reserving a room :thumbsup:"
+			"Don't forget to clean your own dishes! :droplet::fork_and_knife:", 
+			"You can use `today` instead of `[day] [month]` when reserving a room :thumbsup:"
 		];
 
 		channel.send(pickRandom(responses));
@@ -549,7 +573,6 @@ var respond = {
 			this.help(channel, message);
 		} else if (text.indexOf(',') == -1){
 		// COMMA NOT INCLUDED
-
 			var response = "Don't forget to use commas! Please try again."
 
 			channel.send(response);
@@ -561,7 +584,7 @@ var respond = {
 			var requestText = trim(sub);
 
 			// main parsing of request
-			var data = createRequest(requestText, userId);
+			var data = createRequest(requestText, message.user);
 
 			// readable format for user
 			var response = formatRequestResponse(data);
@@ -579,11 +602,113 @@ var respond = {
 		}
 	},
 
+	// general announcements
+	general: function(channel, message){
+		if(fromAdmin(message)){
+			var string = "Great, let's send an announcement! What will the title be?";
+			var username = getUsernameById(message.user);
+
+			userStates.username = {
+				state: 'build',
+				process: 'general'
+			};
+
+			channel.send(string);
+		} else {
+			this.invalid(channel, message);
+		}
+	},
+
+	// general announcements
+	buildGeneral: function(channel, message){
+		var title = trim(message.text);
+		var afterMsg = 'Awesome, now what content would you like to put?';
+		var general = {
+			"text": '',
+			"attachments": [
+		        {
+		            "fallback": title,
+
+		            "color": '#339999',
+
+		            "fields": [
+		                {
+		                    "title": title,
+		                    "value": '< the text you message will go here >',
+		                    "short": false
+		                }
+		            ]
+		        }, {
+		        	"text": afterMsg,
+		        	"color": "#303030",
+		        	"fallback": afterMsg
+		        }
+		    ]
+		};
+
+		userStates.username.general = general;
+
+		userStates.username.state = 'finish';
+
+		sendAttachment(channel, general, function(){});
+
+	},
+
+	// general announcements
+	finishGeneral: function(channel, message){
+		var text = message.text;
+		var username = getUsernameById(message.user);
+		text = text.toLowerCase();
+
+		if(text == 'send'){
+			var attach = JSON.parse(userStates.username.general.attachments);
+
+			// get rid of extra attachment that was used to talk to user
+			attach.splice(1, 1);
+
+	        var general = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+
+	        userStates.username = { state: false };
+
+			channel.send('One general announcement, coming right up!');
+
+			// NEED TO ADD SEND TO #STATIONCHAT
+	        sendAttachment(channel, general, function(){});
+		} else if(text == 'cancel'){
+			userStates.username = { state: false };
+			channel.send('Announcement discarded :thumbsup:');
+		} else {
+			var attach = JSON.parse(userStates.username.general.attachments);
+			attach[0].fields[0].value = message.text;
+	        
+	        // reset second attachment which asks to send or cancel
+			var msg = "Lookin' spiffy. \n ~ Send now? [send] \n ~ Cancel? [cancel]";
+			attach[1] = {
+	        	"text": msg,
+	        	"color": "#303030",
+	        	"fallback": msg
+	        };
+
+	        var general = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+	        userStates.username.general = general;
+
+	        // send for feedback
+	        sendAttachment(channel, general, function(){});
+		}
+	},
+
 	announcements: function(channel, message){
-		var admin = ['mattohagan', 'lucaslindsey', 'sabrinatorres', 'peterpan'];
 		var username = getUsernameById(message.user);
 
-		if(admin.indexOf(username) != -1){
+		if(adminUsers.indexOf(username) != -1){
 			var string = "Awesome, let's send some announcements! Can you give me the list of Events separated by commas?";
 
 			userStates.username = {
@@ -598,6 +723,7 @@ var respond = {
 
 	},
 
+	// events & misc based announcements
 	buildAnnouncements: function(channel, message){
 		var text = message.text;
 		if(text.indexOf(',') == -1){
@@ -653,6 +779,7 @@ var respond = {
 		}
 	},
 
+	// events & misc based announcements
 	finishAnnouncements: function(channel, message){
 		var text = message.text;
 		var username = getUsernameById(message.user);
@@ -703,6 +830,7 @@ var respond = {
 	        sendAttachment(channel, announcement, function(){});
 		} else if(text == 'cancel'){
 			userStates.username = { state: false };
+			channel.send('Announcement discarded :thumbsup:');
 		} else {
 			var misc = message.text;
 			var attach = JSON.parse(userStates.username.announcement.attachments);
@@ -738,12 +866,14 @@ var respond = {
 var states = {
 	build: {
 		announcements: respond.buildAnnouncements,
-		snag: respond.buildReservation
+		snag: respond.buildReservation,
+		general: respond.buildGeneral
 	},
 
 	finish: {
 		announcements: respond.finishAnnouncements,
-		snag: respond.finishReservation
+		snag: respond.finishReservation,
+		general: respond.finishGeneral
 	}
 };
 
@@ -802,6 +932,16 @@ function doesContain(text, responses){
 function getUsernameById(userId){
 	var user = slack.getUserByID(userId);
 	return user.name;
+}
+
+// return true if the message is from an admin
+function fromAdmin(message){
+	var username = getUsernameById(message.user);
+
+	if(adminUsers.indexOf(username) != -1)
+		return true;
+
+	return false;
 }
 
 
