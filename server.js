@@ -6,7 +6,6 @@ var express = require('express');
 var app = express();
 var dotenv = require('dotenv');
 var Slack = require('slack-client');
-var request = require('request');
 var bodyParser = require('body-parser');
 
 // load in helper functions
@@ -91,10 +90,22 @@ app.slack.on('message', function(message){
 		var username = app.helpers.getUsernameById(userId);
 		// if a process is already in progress
 		if(app.userStates.username && app.userStates.username.state){
-			var state = app.userStates.username.state;
-			var currentProcess = app.userStates.username.process;
+			// CANCEL EVERYTHING
+			if(text.toLowerCase() == 'cancel'){
+				respond.cancel(channel, message);
+			} else {
 
-			respond[currentProcess][state](channel, message);
+				var state = app.userStates.username.state;
+				var currentProcess = app.userStates.username.process;
+
+				// i.e. 'announce.general'
+				if(currentProcess.indexOf('.') != -1){
+					var funcs = currentProcess.split('.');
+					respond[funcs[0]][funcs[1]][state](channel, message);
+				} else {
+					respond[currentProcess][state](channel, message);			
+				}
+			}
 		} else { 
 		// process all other messages 
 			var todo = processMessage(text);
@@ -102,7 +113,11 @@ app.slack.on('message', function(message){
 			// i.e. 'general.start'
 			if(todo.indexOf('.') != -1){
 				var funcs = todo.split('.');
-				respond[funcs[0]][funcs[1]](channel, message);
+				if(funcs.length == 2)
+					respond[funcs[0]][funcs[1]](channel, message);
+				else if(funcs.length == 3)
+					respond[funcs[0]][funcs[1]][funcs[2]](channel, message);
+
 			} else {
 				respond[todo](channel, message);				
 			}
@@ -224,6 +239,25 @@ var respond = {
 			"I didn't quite catch that.", "Could you try again?"
 		];
 		channel.send(app.helpers.pickRandom(responses));
+	},
+
+	cancel: function(channel, message){
+		var username = app.helpers.getUsernameById(message.user);
+		var emojis = [':balloon:', ':rotating_light:', ':no_entry_sign:', ':x:'];
+		var msg = "The " + app.userStates.username.process + " process you were in has been discarded " + app.helpers.pickRandom(emojis);
+		var general = {
+			"text": '',
+			"attachments": [
+		        {
+		            "fallback": msg,
+		            "color": '#CC4233',
+		            "text": msg
+		        }
+		    ]
+		};
+
+		app.helpers.sendAttachment(channel, general, function(){});
+		app.userStates.username = {state: false};
 	},
 
 	food: function(channel, message){

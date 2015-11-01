@@ -1,3 +1,4 @@
+var request = require('request');
 var moment = require('moment');
 
 module.exports = function(app) {
@@ -32,12 +33,174 @@ module.exports = function(app) {
 			if(app.helpers.doesContain(text, 'help')){
 				this.help(channel);
 			} else if(app.helpers.doesContain(text, 'start')){
-				this.getRoom(channel, message);
+				this.start(channel, message);
 			} else if (text.length > 15){
 				this.formatted(channel, message);
 			} else {
 				this.help(channel);
 			}
+		},
+
+		start: function(channel, message){
+			// init username object
+			app.reservationQueue.username = {};
+			channel.send("Awesome, let's start by picking the room.");
+			channel.send("`florida`, `east`, or `west`");
+
+			// set next state
+			app.userStates.username = {
+				state: 'getRoom',
+				process: 'snag'
+			};
+		},
+
+		getRoom: function(channel, message){
+			var text = app.helpers.trim(message.text);
+
+			var room = convertToRoom(text);
+
+			if(!room){
+				channel.send("I didn't quite get that, could you try picking the room again?");
+				channel.send("`florida`, `east`, or `west`");
+			} else {
+			// success
+				var username = app.helpers.getUsernameById(message.user);
+				// store room
+				app.reservationQueue.username.room = room;
+
+				channel.send("Next up, pick your time slots.");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+
+				// set next state
+				app.userStates.username = {
+					state: 'getTime',
+					process: 'snag'
+				};
+			}
+		},
+
+		getTime: function(channel, message){
+			var text = app.helpers.trim(message.text);
+
+			// get start and end times
+			var timeObj = parseOutTime(text);
+			var startObj = timeObj.start;
+			var endObj = timeObj.end;
+
+			if(!startObj || !endObj){
+				channel.send("I didn't quite get that, could you try picking the time again?");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+			} else if(!areTimesValid(startObj, endObj)){
+				channel.send("Those times seem to be invalid, remember that you can only reserve three hours at a time.");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+			} else {
+			// success
+				var username = app.helpers.getUsernameById(message.user);
+				// store times
+				app.reservationQueue.username.startObj = startObj;
+				app.reservationQueue.username.endObj = endObj;
+
+				channel.send("Next up, pick the date.");
+				channel.send("Accepted formats: \n `[day] [month]` e.g. `24 oct` \n `today`, `monday`, `tuesday`, etc. also work");
+
+				// set next state
+				app.userStates.username = {
+					state: 'getDate',
+					process: 'snag'
+				};
+			}
+		},
+
+		getDate: function(channel, message){
+			var text = app.helpers.trim(message.text);
+
+			// get day and month
+			var dateObj = parseOutDate(text);
+
+			if(!dateObj){
+				channel.send("I didn't quite get that, could you try picking the date again?");
+				channel.send("Accepted formats: \n `[day] [month]` e.g. `24 oct` \n `today`, `thursday`, etc.");
+			} else {
+			// success
+				var username = app.helpers.getUsernameById(message.user);
+				// store times
+				app.reservationQueue.username.day = dateObj.day;
+				app.reservationQueue.username.month = dateObj.month;
+
+				channel.send("Lastly, I will just need your `company name`.");
+
+				// set next state
+				app.userStates.username = {
+					state: 'getCompany',
+					process: 'snag'
+				};
+			}
+		},
+
+		getCompany: function(channel, message){
+			var text = app.helpers.trim(message.text);
+
+			if(text == ' ' || text == null || text == ''){
+				channel.send("I didn't quite get that, could you try sending me your `company name` again?");
+			} else {
+			// success
+				var username = app.helpers.getUsernameById(message.user);
+				// store times
+				app.reservationQueue.username.company = text;
+
+				this.completeBuild(channel, message);
+			}
+		},
+
+		completeBuild: function(channel, message){
+
+			// get user email
+			var user = app.slack.getUserByID(message.user);
+			var email = user.profile.email;
+
+			// get previous variables to use
+			var username = app.helpers.getUsernameById(message.user);
+			var userData = app.reservationQueue.username;
+			var month = userData.month;
+			var day = userData.day;
+			var startObj = userData.startObj;
+			var endObj = userData.endObj;
+
+			// create user friendly strings
+			var startString = moment({hour: startObj.hr, minute:startObj.min}).format('h:mma');
+			var endString = moment({hour: endObj.hr, minute:endObj.min}).format('h:mma');
+
+			// create moment object to check if it's before now
+			var startMom = moment({month: month, day: day, hour: startObj.hr, minute: startObj.min});
+			// check if date is before today's current date
+			// if so then make it next year
+			// this will mostly be used in december when making january reservations
+			if(startMom.isBefore()){
+				startMom.add(1, 'years');
+			}
+
+			var year = startMom.year();
+			// Monday Oct 13th, 2015
+			var dateString = startMom.format('dddd MMM Do, YYYY');
+			// create date objects that will be used to actually make the request
+			var startDate = new Date(year, month, day, startObj.hr, startObj.min);
+			var endDate = new Date(year, month, day, endObj.hr, endObj.min);
+
+
+			var data = {
+				"email": email,
+				"company": userData.company,
+				"room": userData.room,
+				"start": startString,
+				"end": endString,
+				"dateString": dateString,
+				"startDate": startDate,
+				"endDate": endDate
+			};
+
+			app.reservationQueue.username = data;
+
+			this.confirm(channel, message);
 		},
 
 		// reserve room with one full string
@@ -82,7 +245,8 @@ module.exports = function(app) {
 			};
 
 			app.helpers.sendAttachment(channel, response, function(){
-
+				var afterMsg = "Do you want to `snag` this reservation or `cancel`?";
+				channel.send(afterMsg);
 			});
 		},
 
@@ -94,21 +258,23 @@ module.exports = function(app) {
 					var response;
 					if(res.statusCode == 200){
 						response = 'Room snagged! You should be receiving an email shortly :mailbox_with_mail:';
-
-						app.userStates.username = { state: false };
-						delete app.reservationQueue[username];
 					} else if (res.statusCode == 500){
 						response = 'Oh no! The room has already been snagged, please try again!';
-					} else if (res.statusCode == 500){
-						response = 'Seems to be something askew, the reservation was not confirmed.';
+						response += '\n Your last attempt has been discarded :thumbsup:';
+					} else if (res.statusCode == 503){
+						response = 'Seems to be something askew, the reservation may not have been confirmed. \n If you do not receive an email in the next 5 minutes please try again!';
 					} else {
-						response = 'Room snagged?';
+						response = "Hmm there seems to be an error, the reservation was not confirmed. \n Please try again!";
+						response += "\n Your last attempt has been discarded :thumbsup:";
 					}
 
+					app.userStates.username = { state: false };
+					delete app.reservationQueue[username];
 					channel.send(response);
 				});
 			} else if (text.toLowerCase() == 'cancel'){
 				app.userStates.username = { state: false };
+				delete app.reservationQueue[username];
 				channel.send('Announcement discarded :thumbsup:');
 			} else {
 				channel.send('Would you like to `snag` the reservation or `cancel`?');
@@ -126,7 +292,6 @@ module.exports = function(app) {
 	function formatRequestResponse(data){
 		// new Date(year, month, day, hour, minutes);
 
-		var afterMsg = "Do you want to `snag` this reservation or `cancel`?";
 		var response = {
 			"text": '',
 			"attachments": [
@@ -172,10 +337,6 @@ module.exports = function(app) {
 		                    "short": true
 		                }
 		            ]
-		        }, {
-		        	"text": afterMsg,
-		        	"color": "#303030",
-		        	"fallback": afterMsg
 		        }
 		    ]
 		};
@@ -192,7 +353,6 @@ module.exports = function(app) {
 		// get user email
 		var user = app.slack.getUserByID(userId);
 		var email = user.profile.email;
-		//var email = 'matt@hackfsu.com';
 
 		// get company name and correct room
 		var room = app.helpers.trim(sections[0]);
@@ -202,6 +362,8 @@ module.exports = function(app) {
 		// get day and month
 		var dayAndMonth = app.helpers.trim(sections[2]);
 		var dateObj = parseOutDate(dayAndMonth);
+		if(!dateObj)
+			return false;
 		var day = dateObj.day;
 		var month = dateObj.month;
 
@@ -212,6 +374,9 @@ module.exports = function(app) {
 		var endObj = timeObj.end;
 
 		if(!startObj || !endObj)
+			return false;
+
+		if(!areTimesValid(startObj, endObj))
 			return false;
 
 		// create user friendly strings
@@ -231,7 +396,7 @@ module.exports = function(app) {
 
 		var year = startMom.year();
 		// Monday Oct 13th, 2015
-		var dateString = startMom.format('dddd MMM Do, YYYY')
+		var dateString = startMom.format('dddd MMM Do, YYYY');
 		// create date objects that will be used to actually make the request
 		var startDate = new Date(year, month, day, startObj.hr, startObj.min);
 		var endDate = new Date(year, month, day, endObj.hr, endObj.min);
@@ -248,7 +413,6 @@ module.exports = function(app) {
 			"endDate": endDate
 		};
 
-		console.log(data);
 		return data;
 	}
 
@@ -279,6 +443,22 @@ module.exports = function(app) {
 				end: end
 			}
 		}
+	}
+
+	// test start and end times to make sure they don't exceed 
+	// three hours or are invalid 
+	function areTimesValid(startObj, endObj){
+		// put times in a decimal format
+		var endTime = endObj.hr + (endObj.min * 0.01);
+		var startTime = startObj.hr + (startObj.min * 0.01);
+
+		if ((endTime - startTime) > 3) {
+			return false;
+		} else if ((endTime - startTime) <= 0){
+			return false;
+		}
+
+		return true;
 	}
 
 
@@ -326,7 +506,7 @@ module.exports = function(app) {
 
 		// offset time if it's pm
 		dayTime = dayTime.toLowerCase();
-		if(dayTime == 'pm'){
+		if(dayTime == 'pm' && hr != 12){
 			hr += 12;
 		}
 
@@ -349,12 +529,32 @@ module.exports = function(app) {
 	function parseOutDate(date){
 		var day;
 		var month;
-
+		var days = [
+			'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+		];
+		var lowerCaseDay = date.toLowerCase();
 		// if user put 'today'
-		if(date == 'today' || date == 'Today' || date == 'TODAY'){
+		if(lowerCaseDay == 'today'){
 			var today = new Date();
 			day = today.getDate();
 			month = today.getMonth();
+		} else if (days.indexOf(lowerCaseDay) != -1){
+		// day of the week selected
+			var today = moment();
+			// go through the next week and find the next instance of the day selected
+			for(var i = 0; i < 6; i++){
+				var current = today.format('dddd');
+				if(current.toLowerCase() == lowerCaseDay){
+				// match found
+					day = parseInt(today.format('D'));
+					month = parseInt(today.format('M')) - 1;
+					break;
+				}
+
+				// keep incrementing
+				today.add(1, 'day');
+
+			}
 		} else {
 			if(date.indexOf(' ') == -1)
 				return false;
@@ -362,9 +562,6 @@ module.exports = function(app) {
 			var dayAndMonth = date.split(' ');
 			var day = parseInt(app.helpers.trim(dayAndMonth[0]));
 			var month = app.helpers.trim(dayAndMonth[1]);
-
-			console.log(day)
-			console.log(month)
 
 			// if month is a string then convert to int
 			if(isNaN(month)){

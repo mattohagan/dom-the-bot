@@ -2,6 +2,22 @@
 module.exports = function(app){
 	// return announce object
 	return {
+		pick: function(channel, message){
+			var text = app.helpers.trim(message.text);
+
+			if(app.helpers.doesContain(text, 'email')){
+				this.email.start(channel);
+			} else if(app.helpers.doesContain(text, 'general')){
+				this.general.start(channel, message);
+			} else {
+				channel.send('You can make two different types of announcements, a `general` announcement and an `email` announcement. Which one would you like to make?');
+				app.userStates.username = {
+					state: 'pick',
+					process: 'announce'
+				};
+			}
+		},
+
 		general: {
 			start: function(channel, message){
 				if(app.helpers.fromAdmin(message)){
@@ -10,7 +26,7 @@ module.exports = function(app){
 
 					app.userStates.username = {
 						state: 'build',
-						process: 'general'
+						process: 'announce.general'
 					};
 
 					channel.send(string);
@@ -22,7 +38,6 @@ module.exports = function(app){
 			// build general announcements
 			build: function(channel, message){
 				var title = app.helpers.trim(message.text);
-				var afterMsg = 'Awesome, now what content would you like to put?';
 				var general = {
 					"text": '',
 					"attachments": [
@@ -38,10 +53,6 @@ module.exports = function(app){
 				                    "short": false
 				                }
 				            ]
-				        }, {
-				        	"text": afterMsg,
-				        	"color": "#303030",
-				        	"fallback": afterMsg
 				        }
 				    ]
 				};
@@ -50,7 +61,10 @@ module.exports = function(app){
 
 				app.userStates.username.state = 'finish';
 
-				app.helpers.sendAttachment(channel, general, function(){});
+				app.helpers.sendAttachment(channel, general, function(){
+					var afterMsg = 'Awesome, now what `content` would you like to put?';
+					channel.send(afterMsg);
+				});
 
 			},
 
@@ -62,9 +76,6 @@ module.exports = function(app){
 
 				if(text == 'send'){
 					var attach = JSON.parse(app.userStates.username.general.attachments);
-
-					// get rid of extra attachment that was used to talk to user
-					attach.splice(1, 1);
 
 			        var general = {
 			        	'text': '',
@@ -86,14 +97,6 @@ module.exports = function(app){
 					var attach = JSON.parse(app.userStates.username.general.attachments);
 					attach[0].fields[0].value = message.text;
 			        
-			        // reset second attachment which asks to send or cancel
-					var msg = "Lookin' spiffy. \n ~ Send now? [send] \n ~ Cancel? [cancel]";
-					attach[1] = {
-			        	"text": msg,
-			        	"color": "#303030",
-			        	"fallback": msg
-			        };
-
 			        var general = {
 			        	'text': '',
 			        	'attachments': attach
@@ -102,7 +105,10 @@ module.exports = function(app){
 			        app.userStates.username.general = general;
 
 			        // send for feedback
-			        app.helpers.sendAttachment(channel, general, function(){});
+			        app.helpers.sendAttachment(channel, general, function(){
+						var afterMsg = "Lookin' spiffy, `send` now, or `cancel`?";
+			        	channel.send(afterMsg);
+			        });
 				}
 			}
 		},
@@ -111,12 +117,12 @@ module.exports = function(app){
 			start: function(channel, message){
 				var username = app.helpers.getUsernameById(message.user);
 
-				if(adminUsers.indexOf(username) != -1){
-					var string = "Awesome, let's send some announcements! Can you give me the list of Events separated by commas?";
+				if(app.helpers.fromAdmin(message)){
+					var string = "Awesome, let's send some announcements! Can you give me the `list of Events` separated by commas?";
 
 					app.userStates.username = {
 						state: 'build',
-						process: 'announcements'
+						process: 'announce.email'
 					};
 
 					channel.send(string);
@@ -130,7 +136,7 @@ module.exports = function(app){
 			build: function(channel, message){
 				var text = message.text;
 				if(text.indexOf(',') == -1){
-					var string = "Don't forget commas! Try sending me the list of Events again.";
+					var string = "Don't forget commas! Try sending me the `list of Events` again.";
 					channel.send(string);
 				} else {
 					var emojiList = [':loudspeaker:', ':satellite:', ':tv:', ':bell:', ':radio:'];
@@ -146,7 +152,6 @@ module.exports = function(app){
 					}
 
 					// users options to pick from
-					var afterMsg = "Would you like to \n ~ Add a Misc. section [any free form text] \n ~ Send now as an email reminder? [send or send email] \n ~ Send now as just an announcement update? [send other]  \n ~ Cancel? [cancel]";
 					var announcement = {
 						"text": '',
 						"attachments": [
@@ -166,10 +171,6 @@ module.exports = function(app){
 					                    "short": false
 					                }
 					            ]
-					        }, {
-					        	"text": afterMsg,
-					        	"color": "#303030",
-					        	"fallback": afterMsg
 					        }
 					    ]
 					};
@@ -178,7 +179,10 @@ module.exports = function(app){
 
 					app.userStates.username.state = 'finish';
 
-					app.helpers.sendAttachment(channel, announcement, function(){});
+					app.helpers.sendAttachment(channel, announcement, function(){
+						var afterMsg = "Would you like to \n - Add a Misc. section, just enter `any free form text` \n - `send` now with an email reminder? \n - Use without a reminder to check their email and `send other`  \n - `cancel`";
+						channel.send(afterMsg);
+					});
 				}
 			},
 
@@ -190,18 +194,18 @@ module.exports = function(app){
 
 				if(text == 'send' || text == 'send email'){
 					var attach = JSON.parse(app.userStates.username.announcement.attachments);
-					// reset second attachment which asks to send or cancel
+					// add second attachment as an email reminder
 					var msgs = [
 						"All of this info and more can be found in your inbox :mailbox_closed::blush:",
 						"Don't forget to check the email for more info! :envelope_with_arrow::thumbsup:"
 					];
 
 					var msg = app.helpers.pickRandom(msgs);
-					attach[1] = {
+					attach.push({
 			        	"text": msg,
 			        	"color": "#303030",
 			        	"fallback": msg
-			        };
+			        });
 
 			        var announcement = {
 			        	'text': '',
@@ -217,9 +221,6 @@ module.exports = function(app){
 			        app.helpers.sendAttachment(channel, announcement, function(){});
 				} else if (text == 'send other'){
 					var attach = JSON.parse(app.userStates.username.announcement.attachments);
-
-			        // remove extra attachment
-			        attach.splice(1, 1);
 
 			        var announcement = {
 			        	'text': '',
@@ -247,14 +248,6 @@ module.exports = function(app){
 						"short": false
 					});
 
-					// reset second attachment which asks to send or cancel
-					var msg = "If everything looks up to spec, how should I send this? \n ~ Send as an email reminder? [send or send email] \n ~ Send as just an announcement update? [send other] \n ~ Cancel? [cancel]";
-					attach[1] = {
-			        	"text": msg,
-			        	"color": "#303030",
-			        	"fallback": msg
-			        };
-
 			        var announcement = {
 			        	'text': '',
 			        	'attachments': attach
@@ -262,7 +255,10 @@ module.exports = function(app){
 
 			        app.userStates.username.announcement = announcement;
 
-					app.helpers.sendAttachment(channel, announcement, function(){});
+					app.helpers.sendAttachment(channel, announcement, function(){
+						var afterMsg = "If everything looks up to spec, how should I send this? \n - `send` now with an email reminder? \n - Use without a reminder to check their email and `send other`  \n - `cancel`";
+						channel.send(afterMsg);
+					});
 				}
 			}
 		}
