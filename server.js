@@ -1,3 +1,11 @@
+
+// todo
+// - break out reservation functions
+// - break out announcement building?
+// - only keep base bot logic in here, so just reacting to messages and pipelining what needs to be done
+// - make request to other server and see what happens
+
+
 var express = require('express');
 var app = express();
 var dotenv = require('dotenv');
@@ -5,6 +13,7 @@ var Slack = require('slack-client');
 var request = require('request');
 var bodyParser = require('body-parser');
 var trim = require('trim');
+var moment = require('moment');
 
 app.set('port', (process.env.PORT || 5000));
 // needed for parsing requests
@@ -25,6 +34,9 @@ var reservationQueue = {};
 
 // possible user states: build, finish, false
 var userStates = {};
+
+// lost and found
+var lostAndFound = [];
 
 // authorize incoming requests
 function authRequest(req, res, next){
@@ -91,23 +103,23 @@ function formatRequestResponse(data){
 	                    "short": true
 	                },
 	                {
+	                    "title": "Date",
+	                    "value": data.dateString,
+	                    "short": true
+	                },
+	                {
 	                    "title": "Room",
 	                    "value": data.room,
 	                    "short": true
 	                },
 	                {
-	                    "title": "Date",
-	                    "value": data.day + '/' + (data.month + 1),
-	                    "short": true
-	                },
-	                {
 	                    "title": "Start",
-	                    "value": data.start.hr + ':' + padIfNeeded(data.start.min),
+	                    "value": data.start,
 	                    "short": true
 	                },
 	                {
 	                    "title": "End",
-	                    "value": data.end.hr + ':' + padIfNeeded(data.end.min),
+	                    "value": data.end,
 	                    "short": true
 	                }
 	            ]
@@ -147,18 +159,41 @@ function createRequest(text, userId){
 	// get start and end times
 	var startAndEnd = trim(sections[1]);
 	var timeObj = parseOutTime(startAndEnd);
-	console.log(timeObj);
 	var startObj = timeObj.start;
 	var endObj = timeObj.end;
+
+	// create user friendly strings
+	var startString = moment({hour: startObj.hr, minute:startObj.min}).format('h:mma');
+	var endString = moment({hour: endObj.hr, minute:endObj.min}).format('h:mma');
+
+	// create moment object to check if it's before now
+	var startMom = moment({month: month, day: day, hour: startObj.hr, minute: startObj.min});
+	// check if date is before today's current date
+	// if so then make it next year
+	// this will mostly be used in december when making january reservations
+	if(startMom.isBefore()){
+		startMom.add(1, 'years');
+	}
+
+
+
+	var year = startMom.year();
+	// Monday Oct 13th, 2015
+	var dateString = startMom.format('dddd MMM Do, YYYY')
+	// create date objects that will be used to actually make the request
+	var startDate = new Date(year, month, day, startObj.hr, startObj.min);
+	var endDate = new Date(year, month, day, endObj.hr, endObj.min);
+
 
 	var data = {
 		"email": email,
 		"company": company,
 		"room": room,
-		"start": startObj,
-		"end": endObj,
-		"day": day,
-		"month": month
+		"start": startString,
+		"end": endString,
+		"dateString": dateString,
+		"startDate": startDate,
+		"endDate": endDate
 	};
 
 	console.log(data);
@@ -384,8 +419,15 @@ function convertToRoom(string){
 	return room;
 }
 
-function makeReservation(data){
-	console.log(data);
+function makeReservation(userData, callback){
+
+	var data = {
+	    "email": userData.email,
+	    "company": userData.company,
+	    "room": userData.room,
+	    "start": userData.startDate,
+	    "end": userData.endDate
+	 };
 
 	var options = {
 		url: reservationUrl,
@@ -394,12 +436,13 @@ function makeReservation(data){
 	}
 
 	request.post(options, function(err, response, body){
-		if(err)
-			return err;
+		if(err){
+			console.log('RESERVATION ERROR \n --------------- \n --------- \n ----');
+			console.log(response);	
+			console.log(err);
+		}
 
-		console.log('RESERVATION REQUEST RESPONSE: ');
-		console.log(response);
-
+		callback(response);
 	});
 
 }
@@ -408,7 +451,11 @@ slack.on('message', function(message){
 	var channel = slack.getChannelGroupOrDMByID(message.channel);
 	var text = message.text;
 	var userId = message.user;
+	if(!userId)
+		console.log(message);
+
 	var username = getUsernameById(userId);
+
 	
 	// if direct message and not an attachment because users can't send those
 	if(channel.is_im && !message.attachments){
@@ -417,7 +464,7 @@ slack.on('message', function(message){
 			var state = userStates.username.state;
 			var currentProcess = userStates.username.process;
 
-			respond[state][currentProcess](channel, message);
+			respond[currentProcess][state](channel, message);
 		} else { 
 		// process first response 
 			var todo = processMessage(text);
@@ -464,7 +511,7 @@ function processMessage(text){
 	var sub = text.substring(0, 4);
 	sub = sub.toLowerCase();
 	if(sub == 'snag'){
-		return 'snag';
+		return 'snag.start';
 	}
 
 	// weekly station announcements
@@ -494,6 +541,12 @@ function processMessage(text){
 		return 'tip';
 	}
 
+	// LOST
+	//
+	if(doesContain(text, ['lost', 'misplaced'])){
+		return 'lost.start';
+	}
+
 	// HELLO
 	//
 	responses = [
@@ -508,6 +561,111 @@ function processMessage(text){
 
 	return 'invalid';
 }
+
+var generalObj = {
+	start: function(channel, message){
+		if(fromAdmin(message)){
+			var string = "Great, let's send an announcement! What will the title be?";
+			var username = getUsernameById(message.user);
+
+			userStates.username = {
+				state: 'build',
+				process: 'general'
+			};
+
+			channel.send(string);
+		} else {
+			this.invalid(channel, message);
+		}
+	},
+
+	// build general announcements
+	build: function(channel, message){
+		var title = trim(message.text);
+		var afterMsg = 'Awesome, now what content would you like to put?';
+		var general = {
+			"text": '',
+			"attachments": [
+		        {
+		            "fallback": title,
+
+		            "color": '#339999',
+
+		            "fields": [
+		                {
+		                    "title": title,
+		                    "value": '< the text you message will go here >',
+		                    "short": false
+		                }
+		            ]
+		        }, {
+		        	"text": afterMsg,
+		        	"color": "#303030",
+		        	"fallback": afterMsg
+		        }
+		    ]
+		};
+
+		userStates.username.general = general;
+
+		userStates.username.state = 'finish';
+
+		sendAttachment(channel, general, function(){});
+
+	},
+
+	// general announcements
+	finish: function(channel, message){
+		var text = message.text;
+		var username = getUsernameById(message.user);
+		text = text.toLowerCase();
+
+		if(text == 'send'){
+			var attach = JSON.parse(userStates.username.general.attachments);
+
+			// get rid of extra attachment that was used to talk to user
+			attach.splice(1, 1);
+
+	        var general = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+
+	        userStates.username = { state: false };
+
+			channel.send('One general announcement, coming right up!');
+
+			// SEND TO #STATIONCHAT
+			sendAttachment('stationchat', general, function(){ console.log('Sent general announcement to #stationchat!')});
+	        sendAttachment(channel, general, function(){});
+		} else if(text == 'cancel'){
+			userStates.username = { state: false };
+			channel.send('Announcement discarded :thumbsup:');
+		} else {
+			var attach = JSON.parse(userStates.username.general.attachments);
+			attach[0].fields[0].value = message.text;
+	        
+	        // reset second attachment which asks to send or cancel
+			var msg = "Lookin' spiffy. \n ~ Send now? [send] \n ~ Cancel? [cancel]";
+			attach[1] = {
+	        	"text": msg,
+	        	"color": "#303030",
+	        	"fallback": msg
+	        };
+
+	        var general = {
+	        	'text': '',
+	        	'attachments': attach
+	        };
+
+	        userStates.username.general = general;
+
+	        // send for feedback
+	        sendAttachment(channel, general, function(){});
+		}
+	}
+};
 
 
 // object of response functions
@@ -553,149 +711,121 @@ var respond = {
 		channel.send(pickRandom(responses));
 	},
 
-	snag: function(channel, message){
-		text = trim(message.text);
-
-		if(text.length < 6){
-		// NOT ENOUGH INFO
-			this.help(channel, message);
-		} else if (text.indexOf(',') == -1){
-		// COMMA NOT INCLUDED
-			var response = "Don't forget to use commas! Please try again."
-
-			channel.send(response);
-		} else {
-		// CREATE A ROOM REQUEST
-			var username = getUsernameById(message.user);
-			// get rid of snag at the beginning
-			var sub = text.substring(4);
-			var requestText = trim(sub);
-
-			// main parsing of request
-			var data = createRequest(requestText, message.user);
-
-			// readable format for user
-			var response = formatRequestResponse(data);
-
-			reservationQueue.username = data;
+	lost: {
+		start: function(channel, message){
+			var text = trim(message.text);
+			var response = "Oh no! Can you give me a `full description of the lost item`? \n Or `cancel`";
 
 			userStates.username = {
-				state: 'build',
-				process: 'snag'
+				state: 'confirm',
+				process: 'lost'
 			};
 
-			sendAttachment(channel, response, function(){
+			channel.send(response);
+		},
 
-			});
+		confirm: function(channel, message){
+			var text = trim(message.text);
+			if(text.toLowerCase() == 'cancel'){
+				this.cancel(channel);
+				return false;
+			}
+
+			// create attachment and send to user to confirm
+			// save attachment in userState 
+			// and save descriptions under username in lostAndFound
+
+			userStates.username = {
+				state: 'announce',
+				process: 'lost'
+			};
+
+			var response = "Sorry, this feature isn't ready yet!";
+			channel.send(response);
+
+			this.cancel(channel);
+		},
+
+		announce: function(channel, message){
+			var text = trim(message.text);
+			if(text.toLowerCase() == 'cancel'){
+				this.cancel(channel);
+				return;
+			}
+
+			userStates.username = { state: false };
+
+
+		},
+
+		cancel: function(channel){
+			userStates.username = { state: false };
+			channel.send('Lost and found addition discarded :thumbsup:');
+		}
+	},
+
+	snag: {
+		start: function(channel, message){
+			var text = trim(message.text);
+
+			if(text.length < 6){
+			// NOT ENOUGH INFO
+				respond.help(channel, message);
+			} else if (text.indexOf(',') == -1){
+			// COMMA NOT INCLUDED
+				var response = "Don't forget to use commas! Please try again."
+
+				channel.send(response);
+			} else {
+			// CREATE A ROOM REQUEST
+				var username = getUsernameById(message.user);
+				// get rid of snag at the beginning
+				var sub = text.substring(4);
+				var requestText = trim(sub);
+
+				// main parsing of request
+				var data = createRequest(requestText, message.user);
+
+				// readable format for user
+				var response = formatRequestResponse(data);
+
+				reservationQueue.username = data;
+
+				userStates.username = {
+					state: 'finish',
+					process: 'snag'
+				};
+
+				sendAttachment(channel, response, function(){
+
+				});
+			}
+		},
+
+		finish: function(channel, message){
+			var text = trim(message.text);
+			if(text.toLowerCase() == 'send'){
+				var username = getUsernameById(message.user);
+				makeReservation(reservationQueue.username, function(res){
+					var response;
+					if(res.statusCode == 200){
+						response = 'Room snagged! You should be receiving an email shortly :mailbox_with_mail:';
+					} else if (res.statusCode == 500){
+						response = 'Oh no! The room has already been snagged, please try again!';
+					} else if (res.statusCode == 500){
+						response = 'Seems to be something askew, the reservation was not confirmed.';
+					} else {
+						response = 'Room snagged?';
+					}
+
+					channel.send(response);
+				});
+			}
 		}
 	},
 
 	// general announcements
-	general: {
-
-		start: function(channel, message){
-			if(fromAdmin(message)){
-				var string = "Great, let's send an announcement! What will the title be?";
-				var username = getUsernameById(message.user);
-
-				userStates.username = {
-					state: 'build',
-					process: 'general'
-				};
-
-				channel.send(string);
-			} else {
-				this.invalid(channel, message);
-			}
-		},
-
-		// build general announcements
-		build: function(channel, message){
-			var title = trim(message.text);
-			var afterMsg = 'Awesome, now what content would you like to put?';
-			var general = {
-				"text": '',
-				"attachments": [
-			        {
-			            "fallback": title,
-
-			            "color": '#339999',
-
-			            "fields": [
-			                {
-			                    "title": title,
-			                    "value": '< the text you message will go here >',
-			                    "short": false
-			                }
-			            ]
-			        }, {
-			        	"text": afterMsg,
-			        	"color": "#303030",
-			        	"fallback": afterMsg
-			        }
-			    ]
-			};
-
-			userStates.username.general = general;
-
-			userStates.username.state = 'finish';
-
-			sendAttachment(channel, general, function(){});
-
-		},
-
-		// general announcements
-		finish: function(channel, message){
-			var text = message.text;
-			var username = getUsernameById(message.user);
-			text = text.toLowerCase();
-
-			if(text == 'send'){
-				var attach = JSON.parse(userStates.username.general.attachments);
-
-				// get rid of extra attachment that was used to talk to user
-				attach.splice(1, 1);
-
-		        var general = {
-		        	'text': '',
-		        	'attachments': attach
-		        };
-
-
-		        userStates.username = { state: false };
-
-				channel.send('One general announcement, coming right up!');
-
-				// SEND TO #STATIONCHAT
-				sendAttachTostationchat(general, function(){ console.log('Sent general announcement to #stationchat!')});
-		        sendAttachment(channel, general, function(){});
-			} else if(text == 'cancel'){
-				userStates.username = { state: false };
-				channel.send('Announcement discarded :thumbsup:');
-			} else {
-				var attach = JSON.parse(userStates.username.general.attachments);
-				attach[0].fields[0].value = message.text;
-		        
-		        // reset second attachment which asks to send or cancel
-				var msg = "Lookin' spiffy. \n ~ Send now? [send] \n ~ Cancel? [cancel]";
-				attach[1] = {
-		        	"text": msg,
-		        	"color": "#303030",
-		        	"fallback": msg
-		        };
-
-		        var general = {
-		        	'text': '',
-		        	'attachments': attach
-		        };
-
-		        userStates.username.general = general;
-
-		        // send for feedback
-		        sendAttachment(channel, general, function(){});
-			}
-		}
-	},
+	general: generalObj,
 
 	// email & other announcements
 	announcements: {
@@ -804,7 +934,7 @@ var respond = {
 				channel.send('One announcement, coming up!');
 
 				// SEND TO #STATIONCHAT
-				sendAttachTostationchat(announcement, function(){ console.log('Sent email announcement to #stationchat!')});
+				sendAttachment('stationchat', announcement, function(){ console.log('Sent email announcement to #stationchat!')});
 		        sendAttachment(channel, announcement, function(){});
 			} else if (text == 'send other'){
 				var attach = JSON.parse(userStates.username.announcement.attachments);
@@ -822,7 +952,7 @@ var respond = {
 				channel.send('One announcement, coming up!');
 
 				// SEND TO #STATIONCHAT
-				sendAttachTostationchat(announcement, function(){ console.log('Sent events announcement to #stationchat!')});
+				sendAttachment('stationchat', announcement, function(){ console.log('Sent events announcement to #stationchat!')});
 		        sendAttachment(channel, announcement, function(){});
 			} else if(text == 'cancel'){
 				userStates.username = { state: false };
@@ -861,6 +991,11 @@ var respond = {
 
 
 function sendAttachment(channel, data, callback){
+	// if a name was passed in instead of channel object
+	// then get the actual channel object
+	if(typeof(channel) == 'string')
+		channel = slack.getChannelByName(channel);
+
 	var params = data;
     params.channel = channel.id;
     //params.username = 'dom';
@@ -872,11 +1007,6 @@ function sendAttachment(channel, data, callback){
     slack._apiCall("chat.postMessage", params, callback);
 }
 
-
-function sendAttachTostationchat(attach, callback){
-	var channel = slack.getChannelByName('stationchat');
-	sendAttachment(channel, attach, callback);
-}
 
 
 
@@ -916,6 +1046,7 @@ function doesContain(text, responses){
 	return contains;
 }
 
+// NOT CURRENTLY USED
 // pad a number with a 0 if needed
 // used to output minutes correctly
 function padIfNeeded(num){
@@ -928,7 +1059,7 @@ function padIfNeeded(num){
 // return username from id
 function getUsernameById(userId){
 	var user = slack.getUserByID(userId);
-	return user.name;
+	return user.name;j
 }
 
 // return true if the message is from an admin
