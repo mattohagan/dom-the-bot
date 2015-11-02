@@ -197,6 +197,17 @@ function processMessage(text){
 		return 'lost.start';
 	}
 
+	// THANKS
+	//
+	responses = [
+		'thanks', 'thank'
+	];
+
+	if(app.helpers.doesContain(text, responses)){
+		return 'thanks';
+	}
+
+
 	// HELLO
 	//
 	responses = [
@@ -206,7 +217,6 @@ function processMessage(text){
 	if(app.helpers.doesContain(text, responses)){
 		return 'hello';
 	}
-
 	
 
 	return 'invalid';
@@ -218,6 +228,13 @@ var respond = {
 	hello: function(channel, message){
 		var responses = [
 			'Welcome!', 'Aloha!', 'Cheers!', 'Salutations!', 'Hello!', 'Greetings!', 'Bonjour!', 'Good Day!'
+		];
+		channel.send(app.helpers.pickRandom(responses));
+	},
+
+	thanks: function(channel, message){
+		var responses = [
+			'No problem!', 'Glad to help!', ':smile:', ':blush:'
 		];
 		channel.send(app.helpers.pickRandom(responses));
 	},
