@@ -7,6 +7,7 @@
     "body-parser": "^1.14.1",
     "dotenv": "^1.2.0",
     "express": "^4.13.3",
+    "moment": "^2.10.6",
     "request": "^2.65.0",
     "slack-client": "^1.4.1",
     "trim": "0.0.1"
