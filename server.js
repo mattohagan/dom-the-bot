@@ -26,7 +26,7 @@ app.use(bodyParser.json());
 dotenv.load();
 
 // set some variables
-app.reservationUrl = "http://domi-room.herokuapp.com/room";
+app.reservationUrl = process.env.RESERVATION_URL;
 app.adminUsers = ['mattohagan', 'christineurban','lucaslindsey', 'sabrinatorres', 'peterpan'];
 app.reservationQueue = {};
 app.userStates = {};
