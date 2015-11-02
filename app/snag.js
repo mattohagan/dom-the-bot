@@ -9,8 +9,8 @@ module.exports = function(app) {
 			var helpString = "You can reserve a room one of two ways: \n \n" +
 				"*OPTION 1* \n Follow this format and submit the reservation in one fell swoop. \n" +
 				"```snag [east OR west OR florida], [start][am/pm]-[end][am/pm], [day] [month], [company name]```\n"+
-				"example use: \n"+
-				"```snag east, 11am-1:15pm, 24 oct, HackFSU``` \n \n" +
+				"example: \n"+
+				"`snag east, 11am-1:15pm, 24 oct, HackFSU` \n \n" +
 				"*OPTION 2* \n Simply use `snag start` and I'll walk you through building a room reservation.";
 
 			channel.send(helpString);
@@ -20,8 +20,8 @@ module.exports = function(app) {
 		formatHelp: function(channel){
 			var helpString = "To reserve a room all at once, follow this format and be sure to include commas! \n"+
 			"```snag [east OR west OR florida], [start][am/pm]-[end][am/pm], [day] [month], [company name]```\n"+
-			"example use: \n"+
-			"```snag east, 11am-1:15pm, 24 oct, HackFSU```";
+			"example: \n"+
+			"`snag east, 11am-1:15pm, 24 oct, HackFSU`";
 
 			channel.send(helpString);
 		},
@@ -45,7 +45,7 @@ module.exports = function(app) {
 			// init username object
 			app.reservationQueue.username = {};
 			channel.send("Awesome, let's start by picking the room.");
-			channel.send("`florida`, `east`, or `west`");
+			channel.send("- `florida` \n - `east` \n - `west`");
 
 			// set next state
 			app.userStates.username = {
@@ -61,7 +61,7 @@ module.exports = function(app) {
 
 			if(!room){
 				channel.send("I didn't quite get that, could you try picking the room again?");
-				channel.send("`florida`, `east`, or `west`");
+				channel.send("- `florida` \n - `east` \n - `west`");
 			} else {
 			// success
 				var username = app.helpers.getUsernameById(message.user);
@@ -69,7 +69,7 @@ module.exports = function(app) {
 				app.reservationQueue.username.room = room;
 
 				channel.send("Next up, pick your time slots.");
-				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` \n example: \n `11am-1:15pm`");
 
 				// set next state
 				app.userStates.username = {
@@ -89,10 +89,10 @@ module.exports = function(app) {
 
 			if(!startObj || !endObj){
 				channel.send("I didn't quite get that, could you try picking the time again?");
-				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` \n example: \n `11am-1:15pm`");
 			} else if(!areTimesValid(startObj, endObj)){
 				channel.send("Those times seem to be invalid, remember that you can only reserve three hours at a time.");
-				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` e.g. `11am-1:15pm`");
+				channel.send("Accepted format: \n `[start][am/pm]-[end][am/pm]` \n example: \n `11am-1:15pm`");
 			} else {
 			// success
 				var username = app.helpers.getUsernameById(message.user);
@@ -101,7 +101,7 @@ module.exports = function(app) {
 				app.reservationQueue.username.endObj = endObj;
 
 				channel.send("Next up, pick the date.");
-				channel.send("Accepted formats: \n `[day] [month]` e.g. `24 oct` \n `today`, `monday`, `tuesday`, etc. also work");
+				channel.send("Accepted formats: \n `[day] [month]` \n example: \n `24 october` \n \n `today`, `monday`, `tuesday`, etc. also work");
 
 				// set next state
 				app.userStates.username = {
@@ -119,7 +119,7 @@ module.exports = function(app) {
 
 			if(!dateObj){
 				channel.send("I didn't quite get that, could you try picking the date again?");
-				channel.send("Accepted formats: \n `[day] [month]` e.g. `24 oct` \n `today`, `thursday`, etc.");
+				channel.send("Accepted formats: \n `[day] [month]` \n example: \n `24 oct` \n \n `today`, `monday`, `tuesday`, etc. also work");
 			} else {
 			// success
 				var username = app.helpers.getUsernameById(message.user);
