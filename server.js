@@ -227,8 +227,8 @@ var respond = {
 			"- `snag` \n - `food` \n - `tips`";
 
 		if(app.helpers.fromAdmin(message)){
-			helpString = "Here's a list of admin commands you can send me :smile: \n" +
-			"- `snag` \n - `food` \n - `tips` \n - `announce email` \n - `announce general` \n - `lost` - work in progress";
+			helpString = "Here's a list of commands you can send me :smile: \n" +
+			"*general* \n - `snag` \n - `food` \n - `tips` \n - `lost` - work in progress \n *admin* \n - `announce email` \n - `announce general`";
 		}
 		
 		channel.send(helpString);
